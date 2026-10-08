@@ -2,14 +2,15 @@ name: Stats aktualisieren
 
 on:
   schedule:
-    - cron: '17 * * * *'   # stündlich (Minute 17, um die volle Stunde zu meiden)
-  workflow_dispatch:        # manuell über den "Run workflow"-Button
+    - cron: '7,22,37,52 * * * *'   # alle 15 Minuten (nicht zur vollen Stunde, da ist GitHub überlastet)
+  workflow_dispatch:                # manuell über den "Run workflow"-Button
   push:
     branches: [main]
     paths: ['public/**', 'src/**', 'scripts/**', '.github/workflows/**']
 
 permissions:
-  contents: write
+  contents: read
+  actions: write      # alte Caches löschen
   pages: write
   id-token: write
 
@@ -30,19 +31,34 @@ jobs:
         with:
           node-version: 24
 
-      - name: Logs holen und Statistiken berechnen
+      # Zwischenstand (Tageszahlen inkl. aller Chatter) liegt nur im Cache, nicht im öffentlichen Repo
+      - name: Zwischenstand laden
+        uses: actions/cache/restore@v4
+        with:
+          path: .state
+          key: state-${{ github.run_id }}
+          restore-keys: state-
+
+      - name: Neue Logs holen und Statistiken berechnen
         run: node scripts/build.js
 
-      - name: Daten speichern
+      - name: Zwischenstand speichern
+        uses: actions/cache/save@v4
+        with:
+          path: .state
+          key: state-${{ github.run_id }}
+
+      - name: Alte Zwischenstände löschen
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data public/stats.json public/emotes public/index.html
-          git diff --staged --quiet || (git commit -m "Daten aktualisieren" && git push)
+          gh cache list --key state- --limit 100 --json id,key \
+            --jq '.[] | select(.key != "state-${{ github.run_id }}") | .id' \
+            | xargs -r -n1 gh cache delete || true
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: public
+          path: dist
       - id: deploy
         uses: actions/deploy-pages@v4

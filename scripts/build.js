@@ -1,44 +1,54 @@
-// Wird von der GitHub Action ausgeführt (lokal: npm run build)
+// Wird von der GitHub Action alle 15 Minuten ausgeführt (lokal: npm run build)
 // 1. Emote-Listen abrufen und Verlauf aktualisieren
-// 2. Chat-Logs der Subathon-Tage aus den Archiven holen und pro Tag zusammenfassen
-// 3. public/stats.json für die Website schreiben
+// 2. Chat-Logs holen: laufende Tage nur das Neue seit dem letzten Abruf,
+//    abgeschlossene Tage einmal komplett aus allen Archiven
+// 3. dist/ mit Website + stats.json bauen
+//
+// Der Zwischenstand liegt in .state/ (in der Action: nicht-öffentlicher Cache, nicht im Repo).
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { config } from '../src/config.js';
 import { parseLine } from '../src/irc.js';
-import { fetchDay } from '../src/archives.js';
-import { aggregateDay, lineKey } from '../src/aggregate.js';
+import { fetchDay, fetchRange } from '../src/archives.js';
+import { addMessages, createDay, finalizeDay, lineKey } from '../src/aggregate.js';
 import { buildEmoteMap, emoteImageUrl, fetchThirdPartyEmotes } from '../src/emotes.js';
 import { buildStats } from '../src/merge.js';
 
-const HOUR = 3_600_000;
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
-const root = (p) => fileURLToPath(new URL(`../${p}`, import.meta.url));
-const DAYS_DIR = root('data/days');
-const HISTORY_FILE = root('data/emotes.json');
-const STATE_FILE = root('data/state.json');
-const EMOTE_IMG_DIR = root('public/emotes');
-const STATS_FILE = root('public/stats.json');
+const OVERLAP = 2 * MINUTE;   // Überlappung zum letzten Abruf, falls das Archiv etwas hinterherhängt
 const KEEP = new Set(['PRIVMSG', 'USERNOTICE', 'CLEARCHAT']);
 
-const now = Date.now();
+const root = (p) => fileURLToPath(new URL(`../${p}`, import.meta.url));
+const STATE_DIR = process.env.STATE_DIR ?? root('.state');
+const DAYS_DIR = `${STATE_DIR}/days`;
+const IMG_DIR = `${STATE_DIR}/emote-images`;
+const HISTORY_FILE = `${STATE_DIR}/emotes.json`;
+const STATE_FILE = `${STATE_DIR}/state.json`;
+const DIST = process.env.DIST_DIR ?? root('dist');
+
+const now = Number(process.env.NOW ?? Date.now()); // NOW nur zum Testen überschreiben
 const from = Date.parse(config.start);
 const to = config.end ? Date.parse(config.end) : Infinity;
+const until = Math.min(now, to);
 const log = (...args) => console.log(...args);
 const readJson = (file, fallback) => (existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : fallback);
 const host = (url) => new URL(url).host;
+const isoDate = (ts) => new Date(ts).toISOString().slice(0, 10);
+const dayFile = (date) => `${DAYS_DIR}/${date}.json`;
+const saveDay = (day) => writeFileSync(dayFile(day.date), JSON.stringify(day));
 
-// Neuer Startzeitpunkt (z. B. Testlauf → echter Subathon): alte Daten verwerfen
-if (readJson(STATE_FILE, {}).start !== config.start) {
-  log(`Startzeit geändert auf ${config.start}, setze Daten zurück`);
-  rmSync(DAYS_DIR, { recursive: true, force: true });
-  rmSync(HISTORY_FILE, { force: true });
-  rmSync(EMOTE_IMG_DIR, { recursive: true, force: true });
+// ---------- Zwischenstand ----------
+let state = readJson(STATE_FILE, null);
+if (state?.start !== config.start) {
+  log(`Neuer Startzeitpunkt ${config.start}: fange von vorne an`);
+  rmSync(STATE_DIR, { recursive: true, force: true });
+  state = { start: config.start, fetchedUntil: 0, recentIds: {} };
 }
 mkdirSync(DAYS_DIR, { recursive: true });
-mkdirSync(EMOTE_IMG_DIR, { recursive: true });
-writeFileSync(STATE_FILE, JSON.stringify({ start: config.start }));
+mkdirSync(IMG_DIR, { recursive: true });
 
 // ---------- 1. Emotes ----------
 // Nur während des Subathons abrufen, sonst würden spätere Änderungen als "neu" auftauchen
@@ -56,17 +66,42 @@ if (now < to) {
     writeFileSync(HISTORY_FILE, JSON.stringify(history));
   }
 }
-const emoteMap = buildEmoteMap(history);
+const opts = { emoteMap: buildEmoteMap(history), bots: config.bots, from, to: until };
 
-// ---------- 2. Chat-Logs pro UTC-Tag ----------
-for (let dayStart = Math.floor(from / DAY) * DAY; dayStart < Math.min(now, to); dayStart += DAY) {
-  const date = new Date(dayStart).toISOString().slice(0, 10);
-  const file = `${DAYS_DIR}/${date}.json`;
-  if (readJson(file, null)?.final) continue;
+// ---------- 2. Chat-Logs ----------
+function parse(lines, into = new Map()) {
+  for (const line of lines) {
+    const msg = parseLine(line);
+    if (!KEEP.has(msg.command)) continue;
+    const key = lineKey(msg);
+    if (!into.has(key)) into.set(key, msg);
+  }
+  return into;
+}
 
-  // Ein Tag gilt 2 Stunden nach Mitternacht (UTC) als abgeschlossen → dann alle Archive zusammenführen.
-  // Für den laufenden Tag reicht die Hauptquelle, um die Archive zu schonen.
-  const closing = now > dayStart + DAY + 2 * HOUR;
+// Probiert die Archive der Reihe nach, bis eins antwortet
+async function firstArchive(fetcher) {
+  const errors = {};
+  for (const base of config.archives) {
+    try {
+      return { lines: await fetcher(base), source: host(base) };
+    } catch (err) {
+      errors[host(base)] = err.message;
+    }
+  }
+  log('Alle Archive nicht erreichbar:', errors);
+  return null;
+}
+
+// Ein Tag gilt 2 Stunden nach Mitternacht (UTC) als abgeschlossen
+const isClosing = (dayStart) => now > dayStart + DAY + 2 * HOUR;
+const dayStarts = [];
+for (let d = Math.floor(from / DAY) * DAY; d < until; d += DAY) dayStarts.push(d);
+
+// 2a. Abgeschlossene Tage: einmal komplett aus allen Archiven zusammenführen
+for (const dayStart of dayStarts.filter(isClosing)) {
+  const date = isoDate(dayStart);
+  if (readJson(dayFile(date), null)?.final) continue;
   const merged = new Map();
   const sources = {};
   let ok = 0;
@@ -74,40 +109,91 @@ for (let dayStart = Math.floor(from / DAY) * DAY; dayStart < Math.min(now, to); 
     try {
       const lines = await fetchDay(base, config.channel, dayStart);
       sources[host(base)] = lines.length;
+      parse(lines, merged);
       ok++;
-      for (const line of lines) {
-        const msg = parseLine(line);
-        if (!KEEP.has(msg.command)) continue;
-        const key = lineKey(msg);
-        if (!merged.has(key)) merged.set(key, msg);
-      }
-      if (!closing && lines.length) break;
     } catch (err) {
       sources[host(base)] = `Fehler: ${err.message}`;
     }
   }
   if (ok === 0) {
-    log(`${date}: alle Archive nicht erreichbar, behalte alten Stand`, sources);
+    log(`${date}: alle Archive nicht erreichbar, behalte alten Stand`);
     continue;
   }
-
+  const day = addMessages(createDay(date), merged.values(), opts);
+  day.sources = sources;
   // Abschließen, wenn mind. 2 Archive geantwortet haben. Nach einem Tag Wartezeit reicht auch eins.
-  const final = closing && (ok >= 2 || now > dayStart + 2 * DAY);
-  const day = aggregateDay(merged.values(), { emoteMap, bots: config.bots, from, to });
-  writeFileSync(file, JSON.stringify({ date, final, fetchedAt: now, sources, ...day }));
-  log(`${date}: ${day.messages} Nachrichten, ${Object.keys(day.users).length} Chatter${final ? ' (abgeschlossen)' : ''}`, sources);
+  if (ok >= 2 || now > dayStart + 2 * DAY) finalizeDay(day);
+  saveDay(day);
+  log(`${date}: ${day.messages} Nachrichten${day.final ? ' (abgeschlossen)' : ''}`, sources);
 }
 
-// ---------- 3. stats.json ----------
-const firstDay = new Date(Math.floor(from / DAY) * DAY).toISOString().slice(0, 10);
-const days = readdirSync(DAYS_DIR)
+// 2b. Laufende Tage: nur die Nachrichten seit dem letzten Abruf
+const openDays = dayStarts.filter((d) => !isClosing(d));
+const days = new Map(openDays.map((d) => [d, readJson(dayFile(isoDate(d)), null)]));
+const fresh = !state.fetchedUntil || openDays.some((d) => !days.get(d) && d < state.fetchedUntil);
+
+if (fresh) {
+  // Kein (vollständiger) Zwischenstand: laufende Tage komplett holen
+  state.recentIds = {};
+  let complete = true;
+  for (const dayStart of openDays) {
+    const res = await firstArchive((base) => fetchDay(base, config.channel, dayStart));
+    if (!res) { complete = false; continue; }
+    const msgs = parse(res.lines);
+    const day = addMessages(createDay(isoDate(dayStart)), msgs.values(), opts);
+    for (const [key, msg] of msgs) {
+      const ts = Number(msg.tags['tmi-sent-ts']);
+      if (ts < until) state.recentIds[key] = ts;
+    }
+    saveDay(day);
+    log(`${day.date}: komplett geholt, ${day.messages} Nachrichten (${res.source})`);
+  }
+  if (complete) state.fetchedUntil = until;
+} else if (openDays.length) {
+  const since = Math.max(state.fetchedUntil - OVERLAP, openDays[0]);
+  const res = await firstArchive((base) => fetchRange(base, config.channel, since, until));
+  if (res) {
+    const byDay = new Map();
+    let added = 0;
+    for (const [key, msg] of parse(res.lines)) {
+      if (state.recentIds[key]) continue; // schon beim letzten Abruf gezählt
+      const ts = Number(msg.tags['tmi-sent-ts']);
+      const dayStart = Math.floor(ts / DAY) * DAY;
+      if (!days.has(dayStart)) continue;
+      state.recentIds[key] = ts;
+      if (!byDay.has(dayStart)) byDay.set(dayStart, []);
+      byDay.get(dayStart).push(msg);
+      added++;
+    }
+    for (const [dayStart, msgs] of byDay) {
+      const day = days.get(dayStart) ?? createDay(isoDate(dayStart));
+      saveDay(addMessages(day, msgs, opts));
+    }
+    state.fetchedUntil = until;
+    log(`Seit ${new Date(since).toISOString()}: ${res.lines.length} Zeilen, ${added} neu (${res.source})`);
+  }
+}
+
+// IDs nur für die Überlappung aufheben
+for (const [key, ts] of Object.entries(state.recentIds)) {
+  if (ts < state.fetchedUntil - 10 * MINUTE) delete state.recentIds[key];
+}
+writeFileSync(STATE_FILE, JSON.stringify(state));
+
+// ---------- 3. Website bauen ----------
+const firstDay = isoDate(Math.floor(from / DAY) * DAY);
+const allDays = readdirSync(DAYS_DIR)
   .filter((f) => f.endsWith('.json') && f.slice(0, 10) >= firstDay)
   .sort()
   .map((f) => readJson(`${DAYS_DIR}/${f}`));
-const stats = buildStats(days, history, config, now);
+const stats = buildStats(allDays, history, config, now);
 
-// Emote-Bilder lokal speichern, damit die Website keine fremden Server kontaktiert
-const images = new Map(readdirSync(EMOTE_IMG_DIR).map((f) => [f.replace(/\.\w+$/, ''), f]));
+rmSync(DIST, { recursive: true, force: true });
+cpSync(root('public'), DIST, { recursive: true });
+mkdirSync(`${DIST}/emotes`, { recursive: true });
+
+// Emote-Bilder einmal herunterladen und mit ausliefern, damit die Website keine fremden Server kontaktiert
+const images = new Map(readdirSync(IMG_DIR).map((f) => [f.replace(/\.\w+$/, ''), f]));
 const extensions = { 'image/webp': 'webp', 'image/png': 'png', 'image/gif': 'gif', 'image/avif': 'avif' };
 async function emoteImage(provider, id) {
   const name = `${provider}-${id}`.replace(/[^\w-]/g, '_');
@@ -119,25 +205,25 @@ async function emoteImage(provider, id) {
       });
       const ext = extensions[res.headers.get('content-type')?.split(';')[0]];
       if (!res.ok || !ext) return null;
-      writeFileSync(`${EMOTE_IMG_DIR}/${name}.${ext}`, Buffer.from(await res.arrayBuffer()));
+      writeFileSync(`${IMG_DIR}/${name}.${ext}`, Buffer.from(await res.arrayBuffer()));
       images.set(name, `${name}.${ext}`);
     } catch {
       return null;
     }
   }
+  copyFileSync(`${IMG_DIR}/${images.get(name)}`, `${DIST}/emotes/${images.get(name)}`);
   return `emotes/${images.get(name)}`;
 }
 for (const e of [...stats.topEmotes, ...stats.emoteChanges.added, ...stats.emoteChanges.removed]) {
   e.img = await emoteImage(e.provider, e.id);
 }
-
-writeFileSync(STATS_FILE, JSON.stringify(stats));
-log(`stats.json: ${stats.totals.messages} Nachrichten, ${stats.totals.chatters} Chatter, ${stats.totals.subs} Subs`);
+writeFileSync(`${DIST}/stats.json`, JSON.stringify(stats));
 
 // Versionsnummer an CSS/JS hängen, damit Browser nach einer Änderung nicht die alte Datei aus dem Cache nehmen
-const INDEX_FILE = root('public/index.html');
-const versioned = readFileSync(INDEX_FILE, 'utf8').replace(/(style\.css|app\.js)(\?v=\w+)?"/g, (_, file) => {
-  const hash = createHash('sha1').update(readFileSync(root(`public/${file}`))).digest('hex').slice(0, 8);
+const index = readFileSync(`${DIST}/index.html`, 'utf8').replace(/(style\.css|app\.js)(\?v=\w+)?"/g, (_, file) => {
+  const hash = createHash('sha1').update(readFileSync(`${DIST}/${file}`)).digest('hex').slice(0, 8);
   return `${file}?v=${hash}"`;
 });
-writeFileSync(INDEX_FILE, versioned);
+writeFileSync(`${DIST}/index.html`, index);
+
+log(`stats.json: ${stats.totals.messages} Nachrichten, ${stats.totals.chatters} Chatter, ${stats.totals.subs} Subs`);

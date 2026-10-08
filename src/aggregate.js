@@ -6,31 +6,40 @@ const MINUTE = 60_000;
 const TIERS = { Prime: 'prime', 1000: '1', 2000: '2', 3000: '3' };
 const SUB_TYPES = new Set(['sub', 'resub', 'subgift']);
 
-// Eindeutiger Schlüssel pro Chat-Zeile, um die Archive zusammenzuführen
+// Eindeutiger Schlüssel pro Chat-Zeile, um Archive und überlappende Abrufe zusammenzuführen
 export function lineKey(msg) {
   return msg.tags.id ?? `${msg.command}:${msg.tags['tmi-sent-ts']}:${msg.params[1] ?? ''}`;
 }
 
-// Fasst einen Tag zusammen. Nur Zahlen und Usernamen, keine Nachrichtentexte.
-export function aggregateDay(messages, { emoteMap, bots, from, to }) {
-  const day = {
+// Zusammenfassung eines Tages. Nur Zahlen und Usernamen, keine Nachrichtentexte.
+export function createDay(date) {
+  return {
+    date,
+    final: false,
     messages: 0,
     bits: 0,
     firstTimeChatters: 0,
-    users: {},    // user-id → [login, displayName, nachrichten, bits]
-    emotes: {},   // provider:id → [name, anzahl]
-    events: {},   // msg-id → anzahl
-    tiers: {},    // prime/1/2/3 → anzahl (sub, resub, subgift)
-    gifters: {},  // login → [displayName, gifts]
-    raids: [],    // [ts, login, displayName, zuschauer]
-    hours: {},    // stunden-ts → [nachrichten, chatter, subs, emotes]
+    users: {},        // user-id → [login, displayName, nachrichten, bits]
+    emotes: {},       // provider:id → [name, anzahl]
+    events: {},       // msg-id → anzahl
+    tiers: {},        // prime/1/2/3 → anzahl (sub, resub, subgift)
+    gifters: {},      // login → [displayName, gifts]
+    raids: [],        // [ts, login, displayName, zuschauer]
+    hours: {},        // stunden-ts → [nachrichten, chatter, subs, emotes]
     peakMinute: [0, 0],
-    lastTs: 0,          // Zeitpunkt der letzten Nachricht
-    recentMinutes: {},  // minuten-ts → nachrichten, nur die letzte Stunde vor lastTs
+    lastTs: 0,        // Zeitpunkt der letzten Nachricht
+    recentMinutes: {}, // minuten-ts → nachrichten, nur die letzte Stunde vor lastTs
+    // Zwischenstand, solange der Tag läuft (fällt beim Abschluss weg)
+    hourChatters: {}, // stunden-ts → [user-ids]
+    minutes: {},      // minuten-ts → nachrichten
   };
+}
+
+// Addiert Chat-Zeilen auf einen Tag auf
+export function addMessages(day, messages, { emoteMap, bots, from, to }) {
   const botSet = new Set(bots);
-  const hourChatters = new Map();
-  const minutes = new Map();
+  const chatterSets = {};
+  const chatters = (h) => (chatterSets[h] ??= new Set(day.hourChatters[h] ?? []));
   const hour = (ts) => (day.hours[Math.floor(ts / HOUR) * HOUR] ??= [0, 0, 0, 0]);
   const count = (obj, key) => { obj[key] = (obj[key] ?? 0) + 1; };
 
@@ -61,15 +70,12 @@ export function aggregateDay(messages, { emoteMap, bots, from, to }) {
       user[3] += bits;
       day.messages++;
       day.bits += bits;
-      if (ts > day.lastTs) day.lastTs = ts;
       if (msg.tags['first-msg'] === '1') day.firstTimeChatters++;
+      if (ts > day.lastTs) day.lastTs = ts;
 
       hour(ts)[0]++;
-      const h = Math.floor(ts / HOUR) * HOUR;
-      if (!hourChatters.has(h)) hourChatters.set(h, new Set());
-      hourChatters.get(h).add(uid);
-      const m = Math.floor(ts / MINUTE) * MINUTE;
-      minutes.set(m, (minutes.get(m) ?? 0) + 1);
+      chatters(Math.floor(ts / HOUR) * HOUR).add(uid);
+      count(day.minutes, Math.floor(ts / MINUTE) * MINUTE);
 
       countEmotes(ts, text, msg.tags.emotes);
     } else if (msg.command === 'USERNOTICE') {
@@ -90,10 +96,23 @@ export function aggregateDay(messages, { emoteMap, bots, from, to }) {
     }
   }
 
-  for (const [h, set] of hourChatters) day.hours[h][1] = set.size;
-  for (const [m, c] of minutes) {
-    if (c > day.peakMinute[1]) day.peakMinute = [m, c];
-    if (m > day.lastTs - HOUR) day.recentMinutes[m] = c;
+  // Abgeleitete Werte aktualisieren
+  for (const [h, set] of Object.entries(chatterSets)) {
+    day.hourChatters[h] = [...set];
+    hour(Number(h))[1] = set.size;
   }
+  day.recentMinutes = {};
+  for (const [m, c] of Object.entries(day.minutes)) {
+    if (c > day.peakMinute[1]) day.peakMinute = [Number(m), c];
+    if (Number(m) > day.lastTs - HOUR) day.recentMinutes[m] = c;
+  }
+  return day;
+}
+
+// Abgeschlossener Tag: Zwischenstand wird nicht mehr gebraucht
+export function finalizeDay(day) {
+  day.final = true;
+  delete day.hourChatters;
+  delete day.minutes;
   return day;
 }

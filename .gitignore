@@ -1,3 +1,6 @@
 node_modules/
 .DS_Store
 .claude/
+# Zwischenstand und Build-Ausgabe: nur im nicht-öffentlichen Cache der Action
+.state/
+dist/

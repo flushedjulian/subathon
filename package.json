@@ -6,7 +6,7 @@
   "description": "Statistiken zum LetsHugoTV Subathon",
   "scripts": {
     "build": "node scripts/build.js",
-    "preview": "python3 -m http.server 8765 --directory public"
+    "preview": "python3 -m http.server 8765 --directory dist"
   },
   "engines": {
     "node": ">=22"
