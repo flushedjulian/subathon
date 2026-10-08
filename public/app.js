@@ -69,8 +69,13 @@ function renderHeader() {
 function renderTotals() {
   const t = stats.totals;
   const hours = Math.max(1, (Math.min(stats.end ?? Date.now(), Date.now()) - stats.start) / HOUR);
-  $('hero-messages').textContent = fmt(t.messages);
-  $('hero-sub').textContent = `von ${fmt(t.chatters)} Chattern · Ø ${fmt(Math.round(t.messages / hours))} pro Stunde`;
+  const perHour = stats.live?.messagesPerHour ?? 0;
+  $('hero-sub').replaceChildren(
+    perHour ? h('span', { class: 'live-dot', 'aria-hidden': 'true' }) : '',
+    perHour ? `zuletzt ~${fmt(perHour)} pro Stunde` : 'Chat gerade ruhig',
+    ` · von ${fmt(t.chatters)} Chattern · Ø ${fmt(Math.round(t.messages / hours))} pro Stunde insgesamt`,
+  );
+  $('chatters-sub').textContent = 'nach Anzahl Nachrichten';
 
   const tiles = [
     ['Chatter', t.chatters, t.chatters ? `Ø ${nf1.format(t.messages / t.chatters)} Nachrichten pro Person` : ''],
@@ -244,7 +249,13 @@ function rankRows(list, { value, name, img, tag, unit }) {
     h('span', { class: 'row-value', 'aria-label': `${fmt(value(item))} ${unit}` }, fmt(value(item)))));
 }
 
+function setRows(id, n) {
+  $(id).style.setProperty('--rows', Math.max(1, Math.ceil(n / 2)));
+}
+
 function renderLists() {
+  setRows('emote-list', stats.topEmotes.length);
+  setRows('chatter-list', stats.topChatters.length);
   $('emote-list').replaceChildren(...rankRows(stats.topEmotes, {
     value: (e) => e.count, name: (e) => e.name, img: emoteImg, tag: (e) => PROVIDERS[e.provider], unit: 'mal',
   }));
@@ -267,10 +278,9 @@ function renderRecords() {
     ['Stärkste Stunde', peakHour.messages, peakHour.ts && `${dayLabel.format(peakHour.ts)}, ${timeOnly.format(peakHour.ts)}–${timeOnly.format(peakHour.ts + HOUR)} Uhr`],
     ['Gift-Bombs', t.giftBombs, 'mehrere Subs auf einmal verschenkt'],
   ];
-  $('records').replaceChildren(...items.flatMap(([label, value, sub]) => [
+  $('records').replaceChildren(...items.map(([label, value, sub]) => h('div', {},
     h('dt', {}, label),
-    h('dd', {}, fmt(value), sub && h('small', {}, sub)),
-  ]));
+    h('dd', {}, fmt(value), sub && h('small', {}, sub)))));
 }
 
 function renderEmoteChanges() {
@@ -283,9 +293,72 @@ function renderEmoteChanges() {
   $('emotes-removed').replaceChildren(...chips(removed));
 }
 
+// ---------- Live-Zähler ----------
+// Rechnet die Nachrichtenzahl zwischen den Updates hoch: im Schnitt mit dem Tempo der letzten Stunde,
+// aber mit zufälligen Abständen, schwankendem Tempo und gelegentlichen Hype-Momenten.
+// Kommt ein Update mit höherer Zahl, holt er schnell auf. Ist er zu weit vorne, bremst er (nie rückwärts).
+const MAX_PREDICT_MS = 2 * HOUR; // länger ohne Update → nicht weiter hochrechnen
+const MOOD_TAU = 8;              // Sekunden, bis sich das Tempo spürbar ändert
+const MOOD_SIGMA = 0.35;         // wie stark das Tempo schwankt
+const MOOD_NORM = Math.exp(-(MOOD_SIGMA ** 2 * MOOD_TAU) / 4); // hält den Schnitt bei 1
+const HYPE_EVERY_S = 75;         // im Schnitt alle 75 s ein kurzer Hype-Moment
+
+const counter = { value: null, shown: null, base: 0, lastTs: 0, perSec: 0, mood: 0, hype: 0, lastFrame: 0 };
+
+const gauss = () => Math.sqrt(-2 * Math.log(1 - Math.random())) * Math.cos(2 * Math.PI * Math.random());
+
+// Anzahl zufälliger Ereignisse in einem Zeitabschnitt (Poisson-verteilt)
+function poisson(lambda) {
+  if (lambda > 30) return Math.max(0, Math.round(lambda + Math.sqrt(lambda) * gauss()));
+  const limit = Math.exp(-lambda);
+  let k = 0;
+  let p = 1;
+  do { k++; p *= Math.random(); } while (p > limit);
+  return k - 1;
+}
+
+const counterTarget = (now) =>
+  counter.base + (counter.perSec * Math.min(MAX_PREDICT_MS, Math.max(0, now - counter.lastTs))) / 1000;
+
+function updateCounter() {
+  counter.base = stats.totals.messages;
+  counter.lastTs = stats.live?.lastTs || stats.generatedAt;
+  counter.perSec = (stats.live?.messagesPerHour ?? 0) / 3600;
+  if (counter.value === null) counter.value = Math.floor(counterTarget(Date.now()));
+}
+
+function tickCounter(frameTs) {
+  const dt = counter.lastFrame ? Math.min(5, (frameTs - counter.lastFrame) / 1000) : 0;
+  counter.lastFrame = frameTs;
+
+  if (counter.value !== null && dt > 0) {
+    const gap = counterTarget(Date.now()) - counter.value;
+    const slack = Math.max(15, counter.perSec * 20); // ~20 s Abweichung gelten als normal
+    if (gap > slack * 2) {
+      // Neues Update liegt deutlich höher (oder Tab war im Hintergrund): zügig aufholen
+      counter.value += Math.ceil((gap - slack) * (1 - Math.exp(-dt / 0.8)));
+    } else if (counter.perSec > 0) {
+      counter.mood += (-counter.mood / MOOD_TAU) * dt + MOOD_SIGMA * Math.sqrt(dt) * gauss();
+      if (Math.random() < dt / HYPE_EVERY_S) counter.hype = 1.5 + Math.random() * 2;
+      counter.hype *= Math.exp(-dt / 4);
+      const pull = Math.exp(Math.max(-3, Math.min(1, gap / slack))); // vorne → bremsen, hinten → zulegen
+      const rate = counter.perSec * (Math.exp(counter.mood) * MOOD_NORM + counter.hype) * pull;
+      counter.value += poisson(rate * dt);
+    }
+  }
+
+  if (counter.value !== null && counter.value !== counter.shown) {
+    counter.shown = counter.value;
+    $('hero-messages').textContent = fmt(counter.value);
+  }
+  requestAnimationFrame(tickCounter);
+}
+requestAnimationFrame(tickCounter);
+
 // ---------- Laden ----------
 function render() {
   $('test-notice').hidden = !stats.test;
+  updateCounter();
   renderHeader();
   renderTotals();
   renderTabs();

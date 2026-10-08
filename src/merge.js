@@ -53,6 +53,13 @@ export function buildStats(days, history, config, now) {
   for (let h = Math.floor(from / HOUR) * HOUR; h <= lastHour; h += HOUR) {
     timeline.push([h, ...(hours.get(h) ?? [0, 0, 0, 0])]);
   }
+  // Tempo der letzten Stunde, damit die Website zwischen den Updates hochzählen kann
+  const lastTs = Math.max(0, ...days.map((d) => d.lastTs ?? 0));
+  let recent = 0;
+  for (const d of days) {
+    for (const [m, c] of Object.entries(d.recentMinutes ?? {})) if (Number(m) > lastTs - HOUR) recent += c;
+  }
+
   const peakHour = timeline.reduce((best, row) => (row[1] > best[1] ? row : best), [0, 0]);
 
   const ev = (type) => events.get(type) ?? 0;
@@ -77,6 +84,7 @@ export function buildStats(days, history, config, now) {
     end: to,
     test: Boolean(config.test),
     generatedAt: now,
+    live: { lastTs, messagesPerHour: recent },
     totals: {
       messages,
       chatters: users.size,

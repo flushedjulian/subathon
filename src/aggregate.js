@@ -25,6 +25,8 @@ export function aggregateDay(messages, { emoteMap, bots, from, to }) {
     raids: [],    // [ts, login, displayName, zuschauer]
     hours: {},    // stunden-ts → [nachrichten, chatter, subs, emotes]
     peakMinute: [0, 0],
+    lastTs: 0,          // Zeitpunkt der letzten Nachricht
+    recentMinutes: {},  // minuten-ts → nachrichten, nur die letzte Stunde vor lastTs
   };
   const botSet = new Set(bots);
   const hourChatters = new Map();
@@ -59,6 +61,7 @@ export function aggregateDay(messages, { emoteMap, bots, from, to }) {
       user[3] += bits;
       day.messages++;
       day.bits += bits;
+      if (ts > day.lastTs) day.lastTs = ts;
       if (msg.tags['first-msg'] === '1') day.firstTimeChatters++;
 
       hour(ts)[0]++;
@@ -88,6 +91,9 @@ export function aggregateDay(messages, { emoteMap, bots, from, to }) {
   }
 
   for (const [h, set] of hourChatters) day.hours[h][1] = set.size;
-  for (const [m, c] of minutes) if (c > day.peakMinute[1]) day.peakMinute = [m, c];
+  for (const [m, c] of minutes) {
+    if (c > day.peakMinute[1]) day.peakMinute = [m, c];
+    if (m > day.lastTs - HOUR) day.recentMinutes[m] = c;
+  }
   return day;
 }

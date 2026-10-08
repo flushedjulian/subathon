@@ -3,8 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <meta name="theme-color" content="#0a0a0a">
   <title>LetsHugo Subathon Stats</title>
-  <meta name="description" content="Inoffizielle Chat-Statistiken zum LetsHugoTV Subathon: Nachrichten, Chatter, Subs und Emotes.">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -20,16 +21,24 @@
 
   <main class="wrap" id="app" aria-busy="true">
     <p class="notice" id="test-notice" hidden>
-      <strong>Testlauf:</strong> Der Subathon hat noch nicht begonnen. Die Zahlen hier stammen aus normalen Streams
-      und werden zum Start zurückgesetzt.
+      <strong>Testlauf</strong> · Daten aus normalen Streams, werden zum Subathon-Start zurückgesetzt.
     </p>
-    <section class="hero card" aria-labelledby="hero-label">
+
+    <section class="hero" aria-labelledby="hero-label">
       <p class="label" id="hero-label">Nachrichten im Chat</p>
-      <p class="hero-value" id="hero-messages">–</p>
+      <p class="hero-value" id="hero-messages" aria-live="off">–</p>
       <p class="hero-sub" id="hero-sub"></p>
     </section>
 
-    <section class="tiles" id="tiles" aria-label="Kennzahlen"></section>
+    <section class="card" aria-labelledby="chatters-title">
+      <div class="card-head">
+        <div>
+          <h2 id="chatters-title">Fleißigste Chatter</h2>
+          <p class="card-sub" id="chatters-sub"></p>
+        </div>
+      </div>
+      <ol class="rank-list two-col" id="chatter-list"></ol>
+    </section>
 
     <section class="card" aria-labelledby="timeline-title">
       <div class="card-head">
@@ -46,6 +55,8 @@
       </details>
     </section>
 
+    <section class="tiles" id="tiles" aria-label="Kennzahlen"></section>
+
     <section class="card" aria-labelledby="emotes-title">
       <div class="card-head">
         <div>
@@ -53,30 +64,24 @@
           <p class="card-sub">Twitch, 7TV, BTTV und FFZ</p>
         </div>
       </div>
-      <ol class="emote-list" id="emote-list"></ol>
+      <ol class="rank-list two-col" id="emote-list"></ol>
     </section>
 
     <div class="grid-2">
-      <section class="card" aria-labelledby="chatters-title">
-        <h2 id="chatters-title">Fleißigste Chatter</h2>
-        <ol class="rank-list" id="chatter-list"></ol>
-      </section>
       <section class="card" aria-labelledby="gifters-title">
         <h2 id="gifters-title">Top-Gifter</h2>
         <ol class="rank-list" id="gifter-list"></ol>
-      </section>
-    </div>
-
-    <div class="grid-2">
-      <section class="card" aria-labelledby="records-title">
-        <h2 id="records-title">Rekorde</h2>
-        <dl class="records" id="records"></dl>
       </section>
       <section class="card" aria-labelledby="raids-title">
         <h2 id="raids-title">Größte Raids</h2>
         <ol class="rank-list" id="raid-list"></ol>
       </section>
     </div>
+
+    <section class="card" aria-labelledby="records-title">
+      <h2 id="records-title">Rekorde</h2>
+      <dl class="records" id="records"></dl>
+    </section>
 
     <section class="card" id="changes-card" hidden aria-labelledby="changes-title">
       <h2 id="changes-title">Emote-Änderungen während des Subathons</h2>
@@ -92,16 +97,6 @@
       </div>
     </section>
   </main>
-
-  <footer class="wrap footer">
-    <p><strong>Inoffizielles Fanprojekt von flushedjulian</strong>, nicht von LetsHugoTV betrieben.</p>
-    <p>
-      Datenquelle: öffentliche Chat-Archive (logs.ivr.fi, logs.zonian.dev, logs.susgee.dev).
-      Es werden nur Zahlen ausgewertet, keine Nachrichtentexte veröffentlicht. Bots sind ausgeblendet.
-      Aktualisierung etwa stündlich.
-    </p>
-    <p>Du willst in keiner Rangliste auftauchen? Schreib <strong>flushedjulian</strong> auf Twitch an.</p>
-  </footer>
 
   <div class="tooltip" id="tooltip" role="status" hidden></div>
   <script src="app.js" type="module"></script>
