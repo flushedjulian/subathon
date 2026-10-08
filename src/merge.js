@@ -75,6 +75,7 @@ export function buildStats(days, history, config, now) {
     channel: config.channel,
     start: from,
     end: to,
+    test: Boolean(config.test),
     generatedAt: now,
     totals: {
       messages,

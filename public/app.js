@@ -285,6 +285,7 @@ function renderEmoteChanges() {
 
 // ---------- Laden ----------
 function render() {
+  $('test-notice').hidden = !stats.test;
   renderHeader();
   renderTotals();
   renderTabs();

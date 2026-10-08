@@ -2,7 +2,7 @@
 // 1. Emote-Listen abrufen und Verlauf aktualisieren
 // 2. Chat-Logs der Subathon-Tage aus den Archiven holen und pro Tag zusammenfassen
 // 3. public/stats.json für die Website schreiben
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { config } from '../src/config.js';
 import { parseLine } from '../src/irc.js';
@@ -16,6 +16,7 @@ const DAY = 24 * HOUR;
 const root = (p) => fileURLToPath(new URL(`../${p}`, import.meta.url));
 const DAYS_DIR = root('data/days');
 const HISTORY_FILE = root('data/emotes.json');
+const STATE_FILE = root('data/state.json');
 const EMOTE_IMG_DIR = root('public/emotes');
 const STATS_FILE = root('public/stats.json');
 const KEEP = new Set(['PRIVMSG', 'USERNOTICE', 'CLEARCHAT']);
@@ -27,8 +28,16 @@ const log = (...args) => console.log(...args);
 const readJson = (file, fallback) => (existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : fallback);
 const host = (url) => new URL(url).host;
 
+// Neuer Startzeitpunkt (z. B. Testlauf → echter Subathon): alte Daten verwerfen
+if (readJson(STATE_FILE, {}).start !== config.start) {
+  log(`Startzeit geändert auf ${config.start}, setze Daten zurück`);
+  rmSync(DAYS_DIR, { recursive: true, force: true });
+  rmSync(HISTORY_FILE, { force: true });
+  rmSync(EMOTE_IMG_DIR, { recursive: true, force: true });
+}
 mkdirSync(DAYS_DIR, { recursive: true });
 mkdirSync(EMOTE_IMG_DIR, { recursive: true });
+writeFileSync(STATE_FILE, JSON.stringify({ start: config.start }));
 
 // ---------- 1. Emotes ----------
 // Nur während des Subathons abrufen, sonst würden spätere Änderungen als "neu" auftauchen
