@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LetsHugo Subathon Stats</title>
+  <meta name="description" content="Inoffizielle Chat-Statistiken zum LetsHugoTV Subathon: Nachrichten, Chatter, Subs und Emotes.">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="wrap header">
+    <p class="eyebrow">LetsHugoTV Subathon</p>
+    <h1>Der Chat in Zahlen</h1>
+    <p class="meta">
+      <span id="running">Lädt …</span>
+      <span class="dot" aria-hidden="true">·</span>
+      <span id="updated"></span>
+    </p>
+  </header>
+
+  <main class="wrap" id="app" aria-busy="true">
+    <section class="hero card" aria-labelledby="hero-label">
+      <p class="label" id="hero-label">Nachrichten im Chat</p>
+      <p class="hero-value" id="hero-messages">–</p>
+      <p class="hero-sub" id="hero-sub"></p>
+    </section>
+
+    <section class="tiles" id="tiles" aria-label="Kennzahlen"></section>
+
+    <section class="card" aria-labelledby="timeline-title">
+      <div class="card-head">
+        <div>
+          <h2 id="timeline-title">Verlauf</h2>
+          <p class="card-sub" id="timeline-sub">pro Stunde</p>
+        </div>
+        <div class="seg" role="tablist" aria-label="Kennzahl im Verlauf" id="metric-tabs"></div>
+      </div>
+      <div class="chart" id="chart"></div>
+      <details class="table-toggle">
+        <summary>Als Tabelle anzeigen</summary>
+        <div class="table-scroll"><table id="day-table"></table></div>
+      </details>
+    </section>
+
+    <section class="card" aria-labelledby="emotes-title">
+      <div class="card-head">
+        <div>
+          <h2 id="emotes-title">Top-Emotes</h2>
+          <p class="card-sub">Twitch, 7TV, BTTV und FFZ</p>
+        </div>
+      </div>
+      <ol class="emote-list" id="emote-list"></ol>
+    </section>
+
+    <div class="grid-2">
+      <section class="card" aria-labelledby="chatters-title">
+        <h2 id="chatters-title">Fleißigste Chatter</h2>
+        <ol class="rank-list" id="chatter-list"></ol>
+      </section>
+      <section class="card" aria-labelledby="gifters-title">
+        <h2 id="gifters-title">Top-Gifter</h2>
+        <ol class="rank-list" id="gifter-list"></ol>
+      </section>
+    </div>
+
+    <div class="grid-2">
+      <section class="card" aria-labelledby="records-title">
+        <h2 id="records-title">Rekorde</h2>
+        <dl class="records" id="records"></dl>
+      </section>
+      <section class="card" aria-labelledby="raids-title">
+        <h2 id="raids-title">Größte Raids</h2>
+        <ol class="rank-list" id="raid-list"></ol>
+      </section>
+    </div>
+
+    <section class="card" id="changes-card" hidden aria-labelledby="changes-title">
+      <h2 id="changes-title">Emote-Änderungen während des Subathons</h2>
+      <div class="grid-2 inner">
+        <div>
+          <h3>Neu dazugekommen</h3>
+          <ul class="chip-list" id="emotes-added"></ul>
+        </div>
+        <div>
+          <h3>Entfernt</h3>
+          <ul class="chip-list" id="emotes-removed"></ul>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="wrap footer">
+    <p><strong>Inoffizielles Fanprojekt von flushedjulian</strong>, nicht von LetsHugoTV betrieben.</p>
+    <p>
+      Datenquelle: öffentliche Chat-Archive (logs.ivr.fi, logs.zonian.dev, logs.susgee.dev).
+      Es werden nur Zahlen ausgewertet, keine Nachrichtentexte veröffentlicht. Bots sind ausgeblendet.
+      Aktualisierung etwa stündlich.
+    </p>
+    <p>Du willst in keiner Rangliste auftauchen? Schreib <strong>flushedjulian</strong> auf Twitch an.</p>
+  </footer>
+
+  <div class="tooltip" id="tooltip" role="status" hidden></div>
+  <script src="app.js" type="module"></script>
+</body>
+</html>

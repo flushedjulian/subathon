@@ -1,0 +1,14 @@
+{
+  "name": "letshugo-subathon",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "Statistiken zum LetsHugoTV Subathon",
+  "scripts": {
+    "build": "node scripts/build.js",
+    "preview": "python3 -m http.server 8765 --directory public"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
