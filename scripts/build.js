@@ -2,6 +2,7 @@
 // 1. Emote-Listen abrufen und Verlauf aktualisieren
 // 2. Chat-Logs der Subathon-Tage aus den Archiven holen und pro Tag zusammenfassen
 // 3. public/stats.json für die Website schreiben
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { config } from '../src/config.js';
@@ -132,3 +133,11 @@ for (const e of [...stats.topEmotes, ...stats.emoteChanges.added, ...stats.emote
 
 writeFileSync(STATS_FILE, JSON.stringify(stats));
 log(`stats.json: ${stats.totals.messages} Nachrichten, ${stats.totals.chatters} Chatter, ${stats.totals.subs} Subs`);
+
+// Versionsnummer an CSS/JS hängen, damit Browser nach einer Änderung nicht die alte Datei aus dem Cache nehmen
+const INDEX_FILE = root('public/index.html');
+const versioned = readFileSync(INDEX_FILE, 'utf8').replace(/(style\.css|app\.js)(\?v=\w+)?"/g, (_, file) => {
+  const hash = createHash('sha1').update(readFileSync(root(`public/${file}`))).digest('hex').slice(0, 8);
+  return `${file}?v=${hash}"`;
+});
+writeFileSync(INDEX_FILE, versioned);

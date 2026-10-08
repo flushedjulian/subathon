@@ -37,7 +37,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data public/stats.json public/emotes
+          git add data public/stats.json public/emotes public/index.html
           git diff --staged --quiet || (git commit -m "Daten aktualisieren" && git push)
 
       - uses: actions/configure-pages@v5
