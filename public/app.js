@@ -276,7 +276,7 @@ function renderRecords() {
   const items = [
     ['Meiste Nachrichten in einer Minute', peakMinute.messages, peakMinute.ts && `${dateTime.format(peakMinute.ts)} Uhr`],
     ['Stärkste Stunde', peakHour.messages, peakHour.ts && `${dayLabel.format(peakHour.ts)}, ${timeOnly.format(peakHour.ts)}–${timeOnly.format(peakHour.ts + HOUR)} Uhr`],
-    ['Gift-Bombs', t.giftBombs, 'mehrere Subs auf einmal verschenkt'],
+    ['Sub-Bombs', t.giftBombs, 'mehrere Subs auf einmal verschenkt'],
   ];
   $('records').replaceChildren(...items.map(([label, value, sub]) => h('div', {},
     h('dt', {}, label),
@@ -303,7 +303,7 @@ const MOOD_SIGMA = 0.35;         // wie stark das Tempo schwankt
 const MOOD_NORM = Math.exp(-(MOOD_SIGMA ** 2 * MOOD_TAU) / 4); // hält den Schnitt bei 1
 const HYPE_EVERY_S = 75;         // im Schnitt alle 75 s ein kurzer Hype-Moment
 
-const counter = { value: null, shown: null, base: 0, lastTs: 0, perSec: 0, mood: 0, hype: 0, lastFrame: 0 };
+const counter = { introStart: null, value: null, shown: null, base: 0, lastTs: 0, perSec: 0, mood: 0, hype: 0, lastFrame: 0 };
 
 const gauss = () => Math.sqrt(-2 * Math.log(1 - Math.random())) * Math.cos(2 * Math.PI * Math.random());
 
@@ -347,11 +347,51 @@ function tickCounter(frameTs) {
     }
   }
 
-  if (counter.value !== null && counter.value !== counter.shown) {
-    counter.shown = counter.value;
-    $('hero-messages').textContent = fmt(counter.value);
+  if (counter.value !== null) {
+    let display = counter.value;
+    if (counter.introStart === null) counter.introStart = frameTs;
+    const p = Math.min(1, (frameTs - counter.introStart) / INTRO_MS);
+    if (p < 1) display = Math.floor(counter.value * (1 - (1 - p) ** 4)); // beim Laden von 0 hochzählen
+    if (display !== counter.shown) {
+      counter.shown = display;
+      renderOdometer(display, p === 1);
+    }
   }
   requestAnimationFrame(tickCounter);
+}
+
+// Zahl als Kilometerzähler: geänderte Ziffern rollen nach oben raus, die neue rollt von unten rein
+const INTRO_MS = 1600;
+const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+const odometer = { cells: [] };
+
+function renderOdometer(n, roll) {
+  const el = $('hero-messages');
+  const text = fmt(n);
+  el.setAttribute('aria-label', `${text} Nachrichten`);
+  if (odometer.cells.length !== text.length) {
+    odometer.cells = [...text].map((ch) => {
+      const cell = h('span', { class: /\d/.test(ch) ? 'odo-cell' : 'odo-sep', 'aria-hidden': 'true' }, h('span', { class: 'odo-digit' }, ch));
+      cell.dataset.ch = ch;
+      return cell;
+    });
+    el.replaceChildren(...odometer.cells);
+    return;
+  }
+  [...text].forEach((ch, i) => {
+    const cell = odometer.cells[i];
+    if (cell.dataset.ch === ch) return;
+    cell.dataset.ch = ch;
+    if (!roll || reducedMotion.matches) {
+      cell.replaceChildren(h('span', { class: 'odo-digit' }, ch));
+      return;
+    }
+    cell.querySelectorAll('.odo-out').forEach((o) => o.remove());
+    const old = cell.querySelector('.odo-digit');
+    old.className = 'odo-digit odo-out';
+    old.addEventListener('animationend', () => old.remove(), { once: true });
+    cell.append(h('span', { class: 'odo-digit odo-in' }, ch));
+  });
 }
 requestAnimationFrame(tickCounter);
 
