@@ -4,10 +4,10 @@ export const config = {
 
   // Subathon-Zeitraum. end: null = läuft noch.
   // Wird start geändert, verwirft der nächste Build automatisch alle bisherigen Daten.
-  start: process.env.START ?? '2026-10-06T00:00:00+02:00',
+  start: process.env.START ?? '2026-10-09T18:44:00+02:00',
   end: process.env.END ?? null,
   // Zeigt auf der Website einen Testlauf-Hinweis
-  test: true,
+  test: false,
 
   // Öffentliche Chat-Archive (justlog). Das erste ist die Hauptquelle für den laufenden Tag,
   // fertige Tage werden aus allen zusammengeführt.
