@@ -395,7 +395,6 @@ function renderOdometer(n, roll) {
 }
 requestAnimationFrame(tickCounter);
 
-// ---------- Laden ----------
 function render() {
   $('test-notice').hidden = !stats.test;
   updateCounter();
@@ -410,11 +409,110 @@ function render() {
   $('app').setAttribute('aria-busy', 'false');
 }
 
+// ---------- Passwort ----------
+// stats.enc.json ist mit dem Passwort verschlüsselt (PBKDF2 + AES-GCM). Der abgeleitete Schlüssel
+// wird auf diesem Gerät gespeichert, damit man das Passwort nur einmal eingeben muss.
+const KEY_STORE = 'subathon-key';
+const fromB64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+const toB64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
+let encrypted = null;
+let unlocked = null; // { salt, key }
+
+async function deriveKey(password, enc) {
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt: fromB64(enc.salt), iterations: enc.iterations, hash: 'SHA-256' },
+    base, { name: 'AES-GCM', length: 256 }, true, ['decrypt'],
+  );
+}
+
+async function decrypt(enc, key) {
+  const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromB64(enc.iv) }, key, fromB64(enc.data));
+  return JSON.parse(new TextDecoder().decode(plain));
+}
+
+async function storedKey(salt) {
+  try {
+    const saved = JSON.parse(localStorage.getItem(KEY_STORE));
+    if (saved?.salt !== salt) return null;
+    return { salt, key: await crypto.subtle.importKey('raw', fromB64(saved.key), 'AES-GCM', false, ['decrypt']) };
+  } catch {
+    return null;
+  }
+}
+
+function showLock() {
+  $('app').hidden = true;
+  $('lock').hidden = false;
+  $('lock-button').hidden = true;
+  $('running').textContent = 'Gesperrt';
+  $('updated').textContent = '';
+  $('meta-dot').hidden = true;
+  $('lock-password').focus();
+}
+
+function showApp() {
+  $('lock').hidden = true;
+  $('app').hidden = false;
+  $('lock-button').hidden = !encrypted;
+  $('meta-dot').hidden = false;
+}
+
+$('lock-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const input = $('lock-password');
+  const button = $('lock-submit');
+  if (!encrypted) return;
+  button.disabled = true;
+  button.textContent = 'Prüfe …';
+  $('lock-error').hidden = true;
+  try {
+    const key = await deriveKey(input.value, encrypted);
+    stats = await decrypt(encrypted, key);
+    unlocked = { salt: encrypted.salt, key };
+    try {
+      localStorage.setItem(KEY_STORE, JSON.stringify({ salt: encrypted.salt, key: toB64(await crypto.subtle.exportKey('raw', key)) }));
+    } catch { /* ohne Speicher muss man es nach dem Neuladen eben nochmal eingeben */ }
+    input.value = '';
+    showApp();
+    render();
+  } catch {
+    $('lock-error').hidden = false;
+    input.select();
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Entsperren';
+  }
+});
+
+$('lock-button').addEventListener('click', () => {
+  try { localStorage.removeItem(KEY_STORE); } catch { /* egal */ }
+  unlocked = null;
+  stats = null;
+  showLock();
+});
+
+// ---------- Laden ----------
 async function load() {
   try {
-    const res = await fetch(`stats.json?t=${Date.now()}`, { cache: 'no-store' });
-    if (!res.ok) throw new Error(res.status);
-    stats = await res.json();
+    const res = await fetch(`stats.enc.json?t=${Date.now()}`, { cache: 'no-store' });
+    if (res.ok) {
+      encrypted = await res.json();
+      if (unlocked?.salt !== encrypted.salt) unlocked = await storedKey(encrypted.salt);
+      if (!unlocked) return showLock();
+      try {
+        stats = await decrypt(encrypted, unlocked.key);
+      } catch {
+        unlocked = null; // Passwort wurde geändert
+        return showLock();
+      }
+    } else {
+      // Lokale Vorschau ohne Passwort
+      const plain = await fetch(`stats.json?t=${Date.now()}`, { cache: 'no-store' });
+      if (!plain.ok) throw new Error(plain.status);
+      stats = await plain.json();
+    }
+    showApp();
     render();
   } catch {
     if (!stats) $('running').textContent = 'Daten konnten nicht geladen werden.';
@@ -423,5 +521,5 @@ async function load() {
 
 load();
 setInterval(load, REFRESH_MS);
-setInterval(() => stats && renderHeader(), 30_000);
+setInterval(() => stats && !$('app').hidden && renderHeader(), 30_000);
 new ResizeObserver(() => stats && renderChart()).observe($('chart'));

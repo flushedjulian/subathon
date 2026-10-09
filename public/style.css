@@ -20,6 +20,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html { -webkit-text-size-adjust: 100%; background: var(--bg); }
 body {
   margin: 0;
@@ -52,6 +53,29 @@ h1 {
   border-radius: var(--radius); padding: 10px 16px; font-size: 14px;
 }
 .notice strong { color: var(--gold); font-weight: 650; }
+
+/* ---------- Passwort ---------- */
+.link-button {
+  font: inherit; color: var(--text-3); background: none; border: 0; padding: 0; margin-left: 10px;
+  cursor: pointer; text-decoration: underline; text-underline-offset: 3px;
+}
+.link-button:hover { color: var(--text-2); }
+.lock-card {
+  max-width: 400px; margin: 24px 0 64px; display: grid; gap: 12px;
+  background: var(--surface); border: 1px solid var(--gold-soft); border-radius: var(--radius); padding: 24px;
+}
+.lock-card h2 { font-size: 20px; }
+.lock-card input {
+  font: inherit; color: var(--text); background: var(--surface-2);
+  border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; width: 100%;
+}
+.lock-card input:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; border-color: transparent; }
+.lock-card button {
+  font: inherit; font-weight: 650; color: #1a1406; background: var(--gold);
+  border: 0; border-radius: 10px; padding: 10px 16px; cursor: pointer;
+}
+.lock-card button:disabled { opacity: 0.6; cursor: progress; }
+.lock-error { color: var(--red); font-size: 14px; }
 
 /* ---------- Karten ---------- */
 main { display: grid; gap: 16px; padding-bottom: 64px; }

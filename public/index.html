@@ -14,12 +14,23 @@
     <h1>LetsHugo Sellout</h1>
     <p class="meta">
       <span id="running">Lädt …</span>
-      <span class="dot" aria-hidden="true">·</span>
+      <span class="dot" id="meta-dot" aria-hidden="true">·</span>
       <span id="updated"></span>
+      <button type="button" class="link-button" id="lock-button" hidden>Sperren</button>
     </p>
   </header>
 
-  <main class="wrap" id="app" aria-busy="true">
+  <section class="wrap" id="lock" hidden>
+    <form class="lock-card" id="lock-form">
+      <h2>Passwort</h2>
+      <p class="card-sub">Die Statistiken sind verschlüsselt.</p>
+      <input id="lock-password" type="password" autocomplete="current-password" aria-label="Passwort" required>
+      <button type="submit" id="lock-submit">Entsperren</button>
+      <p class="lock-error" id="lock-error" role="alert" hidden>Falsches Passwort</p>
+    </form>
+  </section>
+
+  <main class="wrap" id="app" aria-busy="true" hidden>
     <p class="notice" id="test-notice" hidden>
       <strong>Testlauf</strong> · Daten aus normalen Streams, werden zum Subathon-Start zurückgesetzt.
     </p>
