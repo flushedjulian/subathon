@@ -348,50 +348,63 @@ function tickCounter(frameTs) {
   }
 
   if (counter.value !== null) {
-    let display = counter.value;
     if (counter.introStart === null) counter.introStart = frameTs;
     const p = Math.min(1, (frameTs - counter.introStart) / INTRO_MS);
-    if (p < 1) display = Math.floor(counter.value * (1 - (1 - p) ** 4)); // beim Laden von 0 hochzählen
-    if (display !== counter.shown) {
-      counter.shown = display;
-      renderOdometer(display, p === 1);
+    if (reducedMotion.matches || counter.shown === null && p === 1) {
+      counter.shown = counter.value;
+    } else if (p < 1) {
+      counter.shown = counter.value * (1 - (1 - p) ** 4); // beim Laden von 0 hochrollen
+    } else {
+      // Die Anzeige gleitet dem Zähler hinterher → bei viel Chat dreht die Einerwalze durchgehend
+      counter.shown += (counter.value - counter.shown) * (1 - Math.exp(-dt / ROLL_TAU));
+      if (counter.value - counter.shown < 0.002) counter.shown = counter.value;
     }
+    renderOdometer(counter.shown, counter.value);
   }
   requestAnimationFrame(tickCounter);
 }
 
-// Zahl als Kilometerzähler: geänderte Ziffern rollen nach oben raus, die neue rollt von unten rein
+// Zahl als Kilometerzähler: jede Stelle ist eine Walze (0–9), die stufenlos dreht.
+// Eine Walze dreht nur weiter, während alle Walzen rechts von ihr von 9 auf 0 rollen – wie beim echten Zähler.
 const INTRO_MS = 1600;
+const ROLL_TAU = 0.35; // Sekunden, wie weich die Anzeige dem Zähler folgt
+const WHEEL_EM = 1.1;  // Höhe einer Ziffer auf der Walze
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
-const odometer = { cells: [] };
+const odometer = { digits: 0, wheels: [], label: null };
 
-function renderOdometer(n, roll) {
+function renderOdometer(v, exact) {
   const el = $('hero-messages');
-  const text = fmt(n);
-  el.setAttribute('aria-label', `${text} Nachrichten`);
-  if (odometer.cells.length !== text.length) {
-    odometer.cells = [...text].map((ch) => {
-      const cell = h('span', { class: /\d/.test(ch) ? 'odo-cell' : 'odo-sep', 'aria-hidden': 'true' }, h('span', { class: 'odo-digit' }, ch));
-      cell.dataset.ch = ch;
-      return cell;
-    });
-    el.replaceChildren(...odometer.cells);
-    return;
+  const label = fmt(exact);
+  if (label !== odometer.label) {
+    odometer.label = label;
+    el.setAttribute('aria-label', `${label} Nachrichten`);
   }
-  [...text].forEach((ch, i) => {
-    const cell = odometer.cells[i];
-    if (cell.dataset.ch === ch) return;
-    cell.dataset.ch = ch;
-    if (!roll || reducedMotion.matches) {
-      cell.replaceChildren(h('span', { class: 'odo-digit' }, ch));
-      return;
+
+  const digits = String(Math.max(0, Math.floor(v))).length;
+  if (digits !== odometer.digits) {
+    odometer.digits = digits;
+    odometer.wheels = [];
+    const parts = [];
+    for (let k = digits - 1; k >= 0; k--) { // k = Stelle, 0 = Einer
+      const strip = h('span', { class: 'odo-strip' }, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0].map((d) => h('span', {}, d)));
+      parts.push(h('span', { class: 'odo-wheel', 'aria-hidden': 'true' }, strip));
+      odometer.wheels[k] = { strip, pos: null };
+      if (k > 0 && k % 3 === 0) parts.push(h('span', { class: 'odo-sep', 'aria-hidden': 'true' }, '.'));
     }
-    cell.querySelectorAll('.odo-out').forEach((o) => o.remove());
-    const old = cell.querySelector('.odo-digit');
-    old.className = 'odo-digit odo-out';
-    old.addEventListener('animationend', () => old.remove(), { once: true });
-    cell.append(h('span', { class: 'odo-digit odo-in' }, ch));
-  });
+    el.replaceChildren(...parts);
+  }
+
+  for (let k = 0; k < digits; k++) {
+    const unit = 10 ** k;
+    const whole = Math.floor(v / unit);
+    const below = v - whole * unit;                // Stand der Walzen rechts davon
+    const turn = Math.max(0, below - (unit - 1));  // 0…1, nur während die rechten Walzen von 9 auf 0 rollen
+    const pos = (whole % 10) + turn;
+    const wheel = odometer.wheels[k];
+    if (wheel.pos !== null && Math.abs(pos - wheel.pos) < 0.001) continue;
+    wheel.pos = pos;
+    wheel.strip.style.transform = `translateY(${(-pos * WHEEL_EM).toFixed(4)}em)`;
+  }
 }
 requestAnimationFrame(tickCounter);
 

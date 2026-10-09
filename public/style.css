@@ -92,15 +92,16 @@ main { display: grid; gap: 16px; padding-bottom: 64px; }
 }
 .hero-sub { color: var(--text-2); margin-top: 10px; }
 
-/* Kilometerzähler */
-.hero-value { display: flex; flex-wrap: nowrap; }
-.odo-cell, .odo-sep { position: relative; display: inline-block; height: 1.02em; overflow: hidden; }
-.odo-digit { display: block; }
-.odo-in { animation: odo-in 320ms cubic-bezier(0.2, 0.8, 0.2, 1) both, odo-flash 900ms ease-out; }
-.odo-out { position: absolute; inset: 0; animation: odo-out 320ms cubic-bezier(0.4, 0, 0.6, 1) both; }
-@keyframes odo-in { from { transform: translateY(100%); opacity: 0.2; } to { transform: none; opacity: 1; } }
-@keyframes odo-out { from { transform: none; opacity: 1; } to { transform: translateY(-100%); opacity: 0; } }
-@keyframes odo-flash { from { color: #fff1bf; } to { color: var(--gold); } }
+/* Kilometerzähler: jede Stelle ist eine senkrechte Walze mit 0–9 */
+.hero-value { display: flex; flex-wrap: nowrap; line-height: 1.1; }
+.odo-wheel {
+  display: inline-block; height: 1.1em; overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 16%, #000 84%, transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 16%, #000 84%, transparent 100%);
+}
+.odo-strip { display: block; will-change: transform; }
+.odo-strip > span { display: block; height: 1.1em; line-height: 1.1em; text-align: center; }
+.odo-sep { display: inline-block; height: 1.1em; line-height: 1.1em; }
 .live-dot {
   display: inline-block; width: 8px; height: 8px; border-radius: 50%;
   background: var(--red); margin-right: 8px; vertical-align: 1px;
