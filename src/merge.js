@@ -84,7 +84,8 @@ export function buildStats(days, history, config, now) {
     end: to,
     test: Boolean(config.test),
     generatedAt: now,
-    live: { lastTs, messagesPerHour: recent },
+    // In der ersten Stunde auf die tatsächlich vergangene Zeit hochrechnen (mind. 5 Minuten, gegen Ausreißer)
+    live: { lastTs, messagesPerHour: Math.round((recent * HOUR) / Math.max(5 * 60_000, Math.min(HOUR, lastTs - from))) },
     totals: {
       messages,
       chatters: users.size,
