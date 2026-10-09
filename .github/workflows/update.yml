@@ -41,8 +41,6 @@ jobs:
 
       - name: Neue Logs holen und Statistiken berechnen
         run: node scripts/build.js
-        env:
-          STATS_PASSWORD: ${{ secrets.STATS_PASSWORD }}
 
       - name: Zwischenstand speichern
         uses: actions/cache/save@v4

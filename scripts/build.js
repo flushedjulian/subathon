@@ -2,7 +2,7 @@
 // 1. Emote-Listen abrufen und Verlauf aktualisieren
 // 2. Chat-Logs holen: laufende Tage nur das Neue seit dem letzten Abruf,
 //    abgeschlossene Tage einmal komplett aus allen Archiven
-// 3. dist/ mit Website + stats.json bauen (verschlüsselt, wenn STATS_PASSWORD gesetzt ist)
+// 3. dist/ mit Website + stats.json bauen
 //
 // Der Zwischenstand liegt in .state/ (in der Action: nicht-öffentlicher Cache, nicht im Repo).
 import { createHash } from 'node:crypto';
@@ -14,7 +14,6 @@ import { fetchDay, fetchRange } from '../src/archives.js';
 import { addMessages, createDay, finalizeDay, lineKey } from '../src/aggregate.js';
 import { buildEmoteMap, emoteImageUrl, fetchThirdPartyEmotes } from '../src/emotes.js';
 import { buildStats } from '../src/merge.js';
-import { encryptJson } from '../src/encrypt.js';
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -218,20 +217,7 @@ async function emoteImage(provider, id) {
 for (const e of [...stats.topEmotes, ...stats.emoteChanges.added, ...stats.emoteChanges.removed]) {
   e.img = await emoteImage(e.provider, e.id);
 }
-// Mit Passwort: nur die verschlüsselte Fassung ausliefern. In der Action ist das Pflicht,
-// damit die Daten nie versehentlich offen online gehen.
-const password = process.env.STATS_PASSWORD;
-if (password) {
-  // Salt bleibt gleich, solange der Zwischenstand lebt → der Browser muss den Schlüssel nur einmal ableiten
-  state.salt ??= Buffer.from(globalThis.crypto.getRandomValues(new Uint8Array(16))).toString('base64');
-  writeFileSync(STATE_FILE, JSON.stringify(state));
-  const encrypted = await encryptJson(stats, password, Buffer.from(state.salt, 'base64'));
-  writeFileSync(`${DIST}/stats.enc.json`, JSON.stringify(encrypted));
-} else if (process.env.CI) {
-  throw new Error('STATS_PASSWORD fehlt: Secret im Repo anlegen (Settings → Secrets and variables → Actions)');
-} else {
-  writeFileSync(`${DIST}/stats.json`, JSON.stringify(stats));
-}
+writeFileSync(`${DIST}/stats.json`, JSON.stringify(stats));
 
 // Versionsnummer an CSS/JS hängen, damit Browser nach einer Änderung nicht die alte Datei aus dem Cache nehmen
 const index = readFileSync(`${DIST}/index.html`, 'utf8').replace(/(style\.css|app\.js)(\?v=\w+)?"/g, (_, file) => {
